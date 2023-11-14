@@ -1,0 +1,117 @@
+
+#ifndef SYNTHDATABLOCKGENERATOR_H
+#define SYNTHDATABLOCKGENERATOR_H
+
+#include "abstractrhxcontroller.h"
+#include "randomnumber.h"
+#include "rhxdatablock.h"
+#include <QElapsedTimer>
+#include <cstdint>
+#include <vector>
+
+using namespace std;
+
+class AbstractSynthSource
+{
+public:
+    AbstractSynthSource(RandomNumber* randomGenerator_, double sampleRate);
+    virtual ~AbstractSynthSource();
+    virtual void reset() = 0;
+    virtual uint16_t nextSample() = 0;
+
+protected:
+    double tStepMsec;
+    double tMsec;
+    RandomNumber* randomGenerator;
+
+    uint16_t convertToAmpADCValue(double electrodeMicrovolts) const;
+};
+
+class NeuralSynthSource : public AbstractSynthSource
+{
+public:
+    NeuralSynthSource(RandomNumber* randomGenerator_, double sampleRate, int nUnits_);
+    void reset() override;
+    uint16_t nextSample() override;
+
+private:
+    int nUnits;
+    vector<double> spikeAmplitude;
+    vector<double> spikeDurationMsec;
+    vector<double> spikeRateHz;
+    vector<bool> firing;
+    vector<double> spikeTimeMsec;
+
+    const double NoiseRMSLevelMicroVolts = 5.0;  // 5 uV rms typical cortical background noise
+    const double SpikeRefractoryPeriodMsec = 5.0;
+    const double LFPFrequencyHz = 2.3;
+    const double LFPModulationHz = 0.5;
+
+    double LFPVoltage() const;
+    double nextSpikeVoltage(int unit);
+};
+
+class ECGSynthSource : public AbstractSynthSource
+{
+public:
+    ECGSynthSource(RandomNumber* randomGenerator_, double sampleRate);
+    void reset() override;
+    uint16_t nextSample() override;
+
+private:
+    double ecgAmplitude;
+};
+
+class ADCSynthSource : public AbstractSynthSource
+{
+public:
+    ADCSynthSource(RandomNumber* randomGenerator_, double sampleRate, double freqHz_, double amplitude_ = 1.0);
+    void reset() override;
+    uint16_t nextSample() override;
+
+private:
+    double freqHz;
+    double amplitude;
+};
+
+class DigitalSynthSource : public AbstractSynthSource
+{
+public:
+    DigitalSynthSource(RandomNumber* randomGenerator_, double sampleRate, double freqHz);
+    void reset() override;
+    uint16_t nextSample() override;
+
+private:
+    double periodMsec;
+};
+
+class SynthDataBlockGenerator
+{
+public:
+    SynthDataBlockGenerator(ControllerType type_, double sampleRate_);
+    ~SynthDataBlockGenerator();
+
+    long readSynthDataBlocksRaw(int numBlocks, uint8_t* buffer, int numDataStreams);
+    void reset();
+
+private:
+    ControllerType type;
+    double sampleRate;
+    RandomNumber* randomGenerator;
+    uint16_t* usbWords;
+    uint32_t tIndex;
+    QElapsedTimer timer;
+    double dataBlockPeriodInNsec;
+    double timeDeficitInNsec;
+    vector<vector<AbstractSynthSource*> > synthSources;
+    vector<ADCSynthSource*> adcSynthSources;
+    vector<DigitalSynthSource*> digitalSynthSources;
+
+    uint16_t auxInSample;
+    uint16_t vddSample;
+    uint16_t dcAmpSample;
+
+    void createSynthDataBlock(int numBlocks, int numDataStreams);
+};
+
+#endif // SYNTHDATABLOCKGENERATOR_H
